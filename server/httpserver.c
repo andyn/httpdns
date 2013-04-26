@@ -34,62 +34,44 @@ typedef struct {
 	int client_fd;
 } ThreadData;
 
-static void httpserver_reply_bad_request(int fd) {
+static void httpserver_reply_generic(int fd, const char *code_and_status) {
 	String *reply = string_new("");
-	string_append_c(reply, "HTTP/1.1 400 Bad Request\r\n");
+	string_append_c(reply, "HTTP/1.1 ");
+	string_append_c(reply, code_and_status);
+	string_append_c(reply, "\r\n");
 	string_append_c(reply, "Iam: anilakar\r\n");
 	string_append_c(reply, "Connection: close\r\n\r\n");
-	string_append_c(reply, "400 Bad Request");
+	string_append_c(reply, code_and_status);
 	socket_write(fd, reply->c_str, reply->size);
 	string_delete(reply);
+}
+
+static void httpserver_reply_bad_request(int fd) {
+	httpserver_reply_generic(fd, "400 Bad Request");
 }
 
 static void httpserver_reply_forbidden(int fd) {
-	String *reply = string_new("");
-	string_append_c(reply, "HTTP/1.1 403 Forbidden\r\n");
-	string_append_c(reply, "Iam: anilakar\r\n");
-	string_append_c(reply, "Connection: close\r\n\r\n");
-	string_append_c(reply, "403 Forbidden");
-	socket_write(fd, reply->c_str, reply->size);
-	string_delete(reply);
+	httpserver_reply_generic(fd, "403 Forbidden");
 }
 
 static void httpserver_reply_not_found(int fd) {
-	String *reply = string_new("");
-	string_append_c(reply, "HTTP/1.1 404 Not Found\r\n");
-	string_append_c(reply, "Iam: anilakar\r\n");
-	string_append_c(reply, "Connection: close\r\n\r\n");
-	string_append_c(reply, "404 Not Found");
-	socket_write(fd, reply->c_str, reply->size);
-	string_delete(reply);
+	httpserver_reply_generic(fd, "404 Not Found");
 }
 
 static void httpserver_reply_method_not_allowed(int fd) {
-	String *reply = string_new("");
-	string_append_c(reply, "HTTP/1.1 405 Method Not Allowed\r\n");
-	string_append_c(reply, "Iam: anilakar\r\n");
-	string_append_c(reply, "Connection: close\r\n\r\n");
-	string_append_c(reply, "405 Method Not Allowed");
-	socket_write(fd, reply->c_str, reply->size);
-	string_delete(reply);
+	httpserver_reply_generic(fd, "405 Method Not Allowed");
 }
 
 static void httpserver_reply_internal_server_error(int fd) {
-	String *reply = string_new("");
-	string_append_c(reply, "HTTP/1.1 503 Internal Server Error\r\n");
-	string_append_c(reply, "Iam: anilakar\r\n");
-	string_append_c(reply, "Connection: close\r\n\r\n");
-	string_append_c(reply, "503 Internal Server Error");
-	socket_write(fd, reply->c_str, reply->size);
-	string_delete(reply);
+	httpserver_reply_generic(fd, "503 Internal Server Error");
 }
 
-static void httpserver_reply_get_file(int network_socket, int local_file) {
+static void httpserver_reply_get_file(int *network_socket, int *local_file) {
 	// Find out file size and rewind
-	size_t file_size = lseek(local_file, 0, SEEK_END);
+	size_t file_size = lseek(*local_file, 0, SEEK_END);
 	char content_length[16];
 	snprintf(content_length, sizeof(content_length), "%zu", file_size);
-	lseek(local_file, 0, SEEK_SET);
+	lseek(*local_file, 0, SEEK_SET);
 
 	// Generate and send header
 	String *reply = string_new("");
@@ -100,18 +82,18 @@ static void httpserver_reply_get_file(int network_socket, int local_file) {
 	string_append_c(reply, content_length);
 	string_append_c(reply, "\r\n");
 	string_append_c(reply, "Connection: close\r\n\r\n");
-	socket_write(network_socket, reply->c_str, reply->size);
+	socket_write(*network_socket, reply->c_str, reply->size);
 	string_delete(reply);
 
 	// Send content/payload
 	size_t bytes_remaining = file_size;
 	while (bytes_remaining > 0) {
 		char buffer[8192];
-		ssize_t bytes_read = socket_read(local_file, buffer, sizeof buffer);
+		ssize_t bytes_read = socket_read(*local_file, buffer, sizeof buffer);
 		if (bytes_read < 0) {
 			break; // Abort, there's really nothing helpful to do after the headers are on the wire
 		}
-		ssize_t bytes_written = socket_write(network_socket, buffer, bytes_read);
+		ssize_t bytes_written = socket_write(*network_socket, buffer, bytes_read);
 		if (bytes_written < 0) {
 			break; // As above
 		}
@@ -138,18 +120,20 @@ static inline String *httpserver_get_directory_contents_dir(DIR *directory) {
 	return s;
 }
 
-static inline String *httpserver_get_directory_contents(int directory) {
+static inline String *httpserver_get_directory_contents(int *directory) {
 	String *s = NULL;
-	DIR *dir = fdopendir(directory);
+	DIR *dir = fdopendir(*directory);
+	*directory = -1; // DIR *dir takes ownership of the file descriptor
 	if (dir) {
 		s = httpserver_get_directory_contents_dir(dir);
 	}
 	closedir(dir);
+
 	return s;
 }
 
 // Print directory contents
-static void httpserver_reply_get_directory(int network_socket, int directory) {
+static void httpserver_reply_get_directory(int *network_socket, int *directory) {
 
 	String *directory_contents = httpserver_get_directory_contents(directory);
 	if (directory_contents) {
@@ -165,16 +149,16 @@ static void httpserver_reply_get_directory(int network_socket, int directory) {
 		string_append_c(reply, "\r\n");
 		string_append_c(reply, "Connection: close\r\n\r\n");
 		string_append(reply, directory_contents);
-		socket_write(network_socket, reply->c_str, reply->size);
+		socket_write(*network_socket, reply->c_str, reply->size);
 		string_delete(reply);
 	}
 	else {
-		httpserver_reply_internal_server_error(network_socket);
+		httpserver_reply_internal_server_error(*network_socket);
 	}
 	string_delete(directory_contents);
 }
 
-static void httpserver_handle_get(int fd, const char *path) {
+static void httpserver_handle_get(int *fd, const char *path) {
 	int local_file = -1;
 
 	// This allows getting directory contents of document root.
@@ -182,21 +166,23 @@ static void httpserver_handle_get(int fd, const char *path) {
 		path = "/.";
 	}
 	if (strlen(path) > 1 && (local_file = open(path + 1, O_RDONLY)) != -1) {
+		VERBOSE("[%d] File '%s' open as %d", *fd, path, local_file);
 		if (is_regular_file(local_file)) {
 			// Serve file contents
-			httpserver_reply_get_file(fd, local_file);
+			httpserver_reply_get_file(fd, &local_file);
 		} else if (is_directory(local_file)) {
 			// Serve directory listing
-			httpserver_reply_get_directory(fd, local_file);
+			httpserver_reply_get_directory(fd, &local_file);
 		} else {
 			// Other than regular files or directories are not served
-			httpserver_reply_forbidden(fd);
+			httpserver_reply_forbidden(*fd);
 		}
 	} else {
-		httpserver_reply_not_found(fd);
+		httpserver_reply_not_found(*fd);
 	}
 
-	socket_close(local_file);
+	VERBOSE("[%d] Closing fd %d", *fd, local_file);
+	socket_close(&local_file);
 }
 
 /**
@@ -205,7 +191,7 @@ static void httpserver_handle_get(int fd, const char *path) {
 static void *httpserver_worker_thread(void *args) {
 	ThreadData *thread_data = args;
 
-	VERBOSE("Worker thread started.");
+	VERBOSE("[%d] Worker thread started", thread_data->client_fd);
 
 	// Avoid wasting stack space on individual threads -- use the heap instead
 	const int buffer_size = 8192;
@@ -217,34 +203,42 @@ static void *httpserver_worker_thread(void *args) {
 	// will hold the start of the payload; this needs to be sent to the file before
 	String *incoming_data = string_new_from_range(buffer, buffer + bytes_read);
 	String **header = string_split(incoming_data, "\r\n");
+	if (!header) {
+		VERBOSE("[%d] Bad data: %d read from %d", thread_data->client_fd, bytes_read, thread_data->client_fd);
+		perror("socket_read");
+	}
 	string_delete(incoming_data);
-	// Calculate number of lines in header
-	size_t header_size = 0;
-	for (; header[header_size]; ++header_size);
+	if (header) {
+		// Calculate number of lines in header
+		size_t header_size = 0;
+		for (; header[header_size]; ++header_size);
 
-	if (header_size > 2) {
-		// At least request \r\n \r\n payload
-		char action[10], path[512], version[10];
-		sscanf(header[0]->c_str, "%9s %511s %9s", action, path, version);
-		VERBOSE("HTTP Action: %s %s %s", action, path, version);
+		if (header_size > 2) {
+			// At least request \r\n \r\n payload
+			char action[10], path[512], version[10];
+			sscanf(header[0]->c_str, "%9s %511s %9s", action, path, version);
+			VERBOSE("[%d] HTTP Action: %s %s %s", thread_data->client_fd, action, path, version);
 
-		if (0 == strcmp(action, "GET")) {
-			httpserver_handle_get(thread_data->client_fd, path);
+			if (0 == strcmp(action, "GET")) {
+				httpserver_handle_get(&thread_data->client_fd, path);
+			}
+			else {
+				httpserver_reply_method_not_allowed(thread_data->client_fd);
+			}
 		}
 		else {
-			httpserver_reply_method_not_allowed(thread_data->client_fd);
+			httpserver_reply_bad_request(thread_data->client_fd);
 		}
-	}
-	else {
-		httpserver_reply_bad_request(thread_data->client_fd);
 	}
 	string_delete_array(header);
 
-	socket_close(thread_data->client_fd);
+	int fd_was = thread_data->client_fd;
+	VERBOSE("[%d] Closing fd %d", fd_was, fd_was);
+	socket_close(&thread_data->client_fd);
 	free(buffer);
 	free(thread_data);
 
-	VERBOSE("Worker thread ended");
+	VERBOSE("[%d] Worker thread ended", fd_was);
 	return NULL;
 }
 
@@ -340,7 +334,7 @@ int httpserver_run(const char *port) {
 
 			int incoming_socket = accept(listen_socket, NULL, NULL);
 			if (incoming_socket != -1) {
-				VERBOSE("Incoming connection.");
+				VERBOSE("Incoming connection, fd %d", incoming_socket);
 				httpserver_handle_connection(incoming_socket);
 			} 
 			else if (errno == EINTR) {
@@ -358,7 +352,8 @@ int httpserver_run(const char *port) {
 	} else {
 		VERBOSE("Error opening listening socket: %s", strerror(errno));
 	}
-	socket_close(listen_socket);
+	VERBOSE("[%d] Closing listening socket", listen_socket);
+	socket_close(&listen_socket);
 
 	return 0;
 }

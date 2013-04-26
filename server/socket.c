@@ -10,20 +10,29 @@
 #include <unistd.h>
 
 #include "socket.h"
+#include "util.h"
 
-int socket_close(int fd) {
-	if (0 > fd) {
-		return 0;
-	}
-
+int socket_close(int *fd_ptr) {
 	int r = -1;
-	while (-1 == (r = close(fd))) {
-		if (errno == EINTR) {
-			continue;
-		}
-		else {
+	while (fd_ptr) {
+		int fd = *fd_ptr;
+		if (fd < 0) {
 			break;
 		}
+
+		while (-1 == (r = close(fd))) {
+			int e = errno;
+			if (errno == EINTR) {
+				VERBOSE("Retrying closing fd %d", fd);
+				continue;
+			}
+			else {
+				VERBOSE("Closing fd %d failed: %s", fd, strerror(e));
+				break;
+			}
+		}
+		*fd_ptr = -1;
+		break;
 	}
 	return r;
 }
@@ -55,7 +64,7 @@ int socket_tcp_connect(const char *hostname, const char *port) {
 		}
 		if (-1 == connect(fd, address->ai_addr, address->ai_addrlen)) {
 			perror("connect");
-			socket_close(fd);
+			socket_close(&fd);
 			fd = -1;
 		}
 		// Success
@@ -92,20 +101,17 @@ int socket_tcp_listen(const char *hostname, const char *port) {
 		int yes = 1;
 		if (-1 == setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes))) {
 			perror("setsockopt");
-			socket_close(fd);
-			fd = -1;
+			socket_close(&fd);
 			continue;
 		}
 		if (-1 == bind(fd, iter->ai_addr, iter->ai_addrlen)) {
 			perror("bind");
-			socket_close(fd);
-			fd = -1;
+			socket_close(&fd);
 			continue;
 		}
 		if (-1 == listen(fd, 128)) {
 			perror("listen");
-			socket_close(fd);
-			fd = -1;
+			socket_close(&fd);
 		}
 		// Success
 		break;

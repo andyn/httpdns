@@ -60,7 +60,7 @@ int http_put_buf(const char *url, const void *buf, size_t count) {
 				sscanf(response, "HTTP/1.1 %d", &response_code);				
 			}
 		}
-		socket_close(http_socket);
+		socket_close(&http_socket);
 		string_delete(buffer);
 
 	}

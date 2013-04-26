@@ -7,13 +7,14 @@
 
 #include <stddef.h>
 #include <unistd.h>
-
+ 
 /**
  * Close a socket, retrying on EINTR. See man 2 close.
- * @param fd File descriptor to close.
+ * Sets file descriptor to -1 to help avoid multiple closes on same data.
+ * @param fd Pointer to file descriptor to close & set to -1.
  * @return Zero on success, -1 on failure (EBADF, EIO)
  */
-int socket_close(int fd);
+int socket_close(int *fd);
 
 /**
  * Connect to a TCP IPv4/IPv6 host.

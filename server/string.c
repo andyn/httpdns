@@ -52,10 +52,12 @@ void string_delete(String *string) {
  * Free a NULL-terminated array of Strings
  */
 void string_delete_array(String **array) {
-	for (String **array_iter = array; *array_iter; ++array_iter) {
-		string_delete(*array_iter);
+	if (array) {
+		for (String **array_iter = array; *array_iter; ++array_iter) {
+			string_delete(*array_iter);
+		}
+		free(array);
 	}
-	free(array);
 }
 
 /**
@@ -113,6 +115,10 @@ String *string_append_c(String *target, const char *source) {
  * @return A NULL-terminated array of pointers to string, split by the delimiter string
  */
 String **string_split(const String *source, const char *delimiter) {
+	if (!source || !delimiter) {
+		return NULL;
+	}
+
 	String **string_array = malloc(sizeof(*string_array));
 	if (!string_array) {
 		return NULL;
