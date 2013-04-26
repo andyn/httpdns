@@ -21,13 +21,10 @@ int socket_close(int *fd_ptr) {
 		}
 
 		while (-1 == (r = close(fd))) {
-			int e = errno;
 			if (errno == EINTR) {
-				VERBOSE("Retrying closing fd %d", fd);
 				continue;
 			}
 			else {
-				VERBOSE("Closing fd %d failed: %s", fd, strerror(e));
 				break;
 			}
 		}

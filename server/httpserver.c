@@ -3,6 +3,8 @@
 #include <errno.h>
 #include <dirent.h>
 #include <fcntl.h>
+#include <netdb.h>
+#include <netinet/in.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -34,7 +36,7 @@ typedef struct {
 	int client_fd;
 } ThreadData;
 
-static void httpserver_reply_generic(int fd, const char *code_and_status) {
+static void httpserver_reply_full(int fd, const char *code_and_status) {
 	String *reply = string_new("");
 	string_append_c(reply, "HTTP/1.1 ");
 	string_append_c(reply, code_and_status);
@@ -46,24 +48,35 @@ static void httpserver_reply_generic(int fd, const char *code_and_status) {
 	string_delete(reply);
 }
 
+static void httpserver_reply_header(int fd, const char *code_and_status) {
+	String *reply = string_new("");
+	string_append_c(reply, "HTTP/1.1 ");
+	string_append_c(reply, code_and_status);
+	string_append_c(reply, "\r\n");
+	string_append_c(reply, "Iam: anilakar\r\n");
+	string_append_c(reply, "Connection: close\r\n\r\n");
+	socket_write(fd, reply->c_str, reply->size);
+	string_delete(reply);
+}
+
 static void httpserver_reply_bad_request(int fd) {
-	httpserver_reply_generic(fd, "400 Bad Request");
+	httpserver_reply_full(fd, "400 Bad Request");
 }
 
 static void httpserver_reply_forbidden(int fd) {
-	httpserver_reply_generic(fd, "403 Forbidden");
+	httpserver_reply_full(fd, "403 Forbidden");
 }
 
 static void httpserver_reply_not_found(int fd) {
-	httpserver_reply_generic(fd, "404 Not Found");
+	httpserver_reply_full(fd, "404 Not Found");
 }
 
 static void httpserver_reply_method_not_allowed(int fd) {
-	httpserver_reply_generic(fd, "405 Method Not Allowed");
+	httpserver_reply_full(fd, "405 Method Not Allowed");
 }
 
 static void httpserver_reply_internal_server_error(int fd) {
-	httpserver_reply_generic(fd, "503 Internal Server Error");
+	httpserver_reply_full(fd, "503 Internal Server Error");
 }
 
 static void httpserver_reply_get_file(int *network_socket, int *local_file) {
@@ -166,7 +179,6 @@ static void httpserver_handle_get(int *fd, const char *path) {
 		path = "/.";
 	}
 	if (strlen(path) > 1 && (local_file = open(path + 1, O_RDONLY)) != -1) {
-		VERBOSE("[%d] File '%s' open as %d", *fd, path, local_file);
 		if (is_regular_file(local_file)) {
 			// Serve file contents
 			httpserver_reply_get_file(fd, &local_file);
@@ -181,8 +193,85 @@ static void httpserver_handle_get(int *fd, const char *path) {
 		httpserver_reply_not_found(*fd);
 	}
 
-	VERBOSE("[%d] Closing fd %d", *fd, local_file);
 	socket_close(&local_file);
+}
+
+static void httpserver_reply_put(int *fd, int local_file, size_t content_length, String *header) {
+	ssize_t r = -1;
+
+	// Write initial header
+	if (header) {
+		r = socket_write(local_file, header->c_str, header->size);
+		if (r == -1) {
+			httpserver_reply_internal_server_error(*fd);
+			return;
+		}
+		content_length -= header->size;
+	}
+
+	// Loop read and write
+	while (content_length > 0) {
+		char buf[8192];
+		ssize_t bytes_read;
+		bytes_read = socket_read(*fd, buf, sizeof(buf));
+		if (bytes_read > 0) {
+			content_length -= bytes_read;
+			while (bytes_read > 0) {
+				ssize_t bytes_written = socket_write(local_file, buf, bytes_read);
+				if (bytes_written == -1) {
+					// Could not write to disk -- internal error
+					httpserver_reply_internal_server_error(*fd);
+					return;
+				}
+				bytes_read -= bytes_written;
+			}
+		}
+		else {
+			// Could not read while content still remaining -- bad request
+			httpserver_reply_bad_request(*fd);
+			return;
+		}
+	}
+	httpserver_reply_full(*fd, "201 Created");
+}
+
+static void httpserver_handle_put(int *fd, const char *path, String **header) {
+	// Find content length and allocate a new file with enough space.
+	ssize_t content_length = 0;
+	bool header_ok = false;
+	bool expect_100 = false;
+	++header; // Skip the first HTTP action line
+	while (header[0]) {
+		if (strcmp(header[0]->c_str, "") == 0) {
+			++header; // header contains the payload start now.
+			header_ok = true;
+			break;
+		}
+		// Find the content-length parameter
+		if (strncasecmp(header[0]->c_str, "content-length:", strlen("content-length:")) == 0) {
+			String **line = string_split(header[0], ":");
+			sscanf(line[1]->c_str, "%zd", &content_length);
+			string_delete_array(line);
+		}
+			if (strncasecmp(header[0]->c_str, "Expect: 100-continue", strlen("Expect: 100-continue")) == 0) {
+			expect_100 = true;
+		}
+		++header;
+	}
+	if (header_ok && content_length >= 0) {
+		if (expect_100) {
+			// Happily accept anything
+			httpserver_reply_header(*fd, "100 Continue");
+		}
+		// Create a new file for writing
+		int local_file = open(path + 1, O_WRONLY | O_CREAT | O_TRUNC);
+		if (local_file != -1) {
+			httpserver_reply_put(fd, local_file, content_length, header[0]);
+		}
+		socket_close(&local_file);
+	} else {
+		httpserver_reply_bad_request(*fd);
+	}
 }
 
 /**
@@ -190,8 +279,6 @@ static void httpserver_handle_get(int *fd, const char *path) {
  */
 static void *httpserver_worker_thread(void *args) {
 	ThreadData *thread_data = args;
-
-	VERBOSE("[%d] Worker thread started", thread_data->client_fd);
 
 	// Avoid wasting stack space on individual threads -- use the heap instead
 	const int buffer_size = 8192;
@@ -222,6 +309,9 @@ static void *httpserver_worker_thread(void *args) {
 			if (0 == strcmp(action, "GET")) {
 				httpserver_handle_get(&thread_data->client_fd, path);
 			}
+			else if (0 == strcmp(action, "PUT")) {
+				httpserver_handle_put(&thread_data->client_fd, path, header);
+			}
 			else {
 				httpserver_reply_method_not_allowed(thread_data->client_fd);
 			}
@@ -232,13 +322,10 @@ static void *httpserver_worker_thread(void *args) {
 	}
 	string_delete_array(header);
 
-	int fd_was = thread_data->client_fd;
-	VERBOSE("[%d] Closing fd %d", fd_was, fd_was);
 	socket_close(&thread_data->client_fd);
 	free(buffer);
 	free(thread_data);
 
-	VERBOSE("[%d] Worker thread ended", fd_was);
 	return NULL;
 }
 
@@ -332,9 +419,19 @@ int httpserver_run(const char *port) {
 				continue;
 			}
 
-			int incoming_socket = accept(listen_socket, NULL, NULL);
+			struct sockaddr_in6 peer;
+			socklen_t peer_length = sizeof(peer);
+			int incoming_socket = accept(listen_socket, &peer, &peer_length);
 			if (incoming_socket != -1) {
-				VERBOSE("Incoming connection, fd %d", incoming_socket);
+				char peer_hostname[128];
+				peer_hostname[0] = '\0';
+				char peer_port[16];
+				peer_port[0] = '\0';
+				getnameinfo((struct sockaddr *) &peer, peer_length,
+					peer_hostname, sizeof peer_hostname,
+					peer_port, sizeof peer_port,
+					NI_NUMERICSERV);
+				VERBOSE("[%d] Incoming connection from %s:%s", incoming_socket, peer_hostname, peer_port);
 				httpserver_handle_connection(incoming_socket);
 			} 
 			else if (errno == EINTR) {
@@ -352,7 +449,7 @@ int httpserver_run(const char *port) {
 	} else {
 		VERBOSE("Error opening listening socket: %s", strerror(errno));
 	}
-	VERBOSE("[%d] Closing listening socket", listen_socket);
+	VERBOSE("Closing listening socket", listen_socket);
 	socket_close(&listen_socket);
 
 	return 0;
