@@ -1,0 +1,62 @@
+<h1>HttpDns Client ver 1.</h1>
+
+<p>Antti Nilakari 66648T <code>&lt;antti.nilakari@aalto.fi&gt;</code></p>
+
+<h1>Overview</h1>
+
+<p>The HttpDnsClient has the following module &amp; header structure:</p>
+
+<pre><code>    httpdnsc.cc                // Main executable
+    +- httpgetput.hh           // HTTP GET and PUT functions
+       +- addrinfo.hh          // Wrapper for addrinfo
+       +- file.hh              // Wrapper for int file sockets
+       |  +- filedescriptor.cc // Wrapper for readadable / writeable FDs.
+       +- tcpclientsocket.hh   // Functionality for TCP client sockets
+          +- tcpsocket.hh      // Funcionality for TCP sockets in general
+             +- socket.hh      // Functionality for sockets in general
+</code></pre>
+
+<p>The class hierarchy for Sockets is as follows and allows generic functionality to be implemented on int-like file descriptor based sockets:</p>
+
+<pre><code>    File
+    +- FileDescriptor
+    +- Socket
+       +- TCPSocket
+       +- TCPClientSocket
+</code></pre>
+
+<h1>Key Functionality</h1>
+
+<p>The network logic is very straightforward: there is no need for parallel activity. Reading and writing is very straightforward looping as long as the sockets give data when reading or the to-be-sent buffer is not empty when writing. In case of error, an exception in C++ is thrown and the operation is aborted.</p>
+
+<h1>Build and Installation Instructions</h1>
+
+<pre><code>    $ cd src
+    $ make clean all
+</code></pre>
+
+<h1>User Instructions</h1>
+
+<p>The action must be given as the first parameter when calling the client. The URL must be canonical and have the http: scheme part.</p>
+
+<pre><code>    $ ./httpdnsc GET http://nwprog1.netlab.hut.fi:3000/nwhttplog log.txt
+    $ ./httpdnsc PUT log.txt http://nwprog1.netlab.hut.fi:3000/new-file.txt
+</code></pre>
+
+<h1>Testing and known limitations</h1>
+
+<p>The client performs well only if the server accepts the result, i.e. a 200 OK is returned. In other cases, it will hang and wait for timeout (which takes a few seconds). The program was tested against the nwprog1.netlab.hut.fi:3000 server implementation.</p>
+
+<h1>Answers to specific questions</h1>
+
+<ol>
+<li><p>The implementation is IPv6 compatible. The Socket implementation is protocl agnostic, but Addrinfo uses IPv6 and V4MAPPED:</p>
+
+<pre><code>// Snippet from the code
+int flags = AI_V4MAPPED | AI_ALL,
+int family = AF_INET6
+</code></pre>
+
+<p>It has not been specifically tested, but this will be done in the final version.</p></li>
+<li><p>If connecting fails, an exception is thrown and the operation aborted. The Addrinfo list is looped through to ensure that all addresses are tried.</p></li>
+</ol>
