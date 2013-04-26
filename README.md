@@ -1,7 +1,7 @@
 HttpDns
 =======
 
-A minimal HTTP client, server and proxy. Home assignment for course S-38.3610 Network Programming.
+A minimal HTTP client, server and DNS requester. Home assignment for course S-38.3610 Network Programming.
 
 Repository contents
 -------------------
