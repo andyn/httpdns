@@ -7,7 +7,7 @@
 
 #include <stddef.h>
 #include <unistd.h>
- 
+
 /**
  * Close a socket, retrying on EINTR. See man 2 close.
  * Sets file descriptor to -1 to help avoid multiple closes on same data.
@@ -31,6 +31,15 @@ int socket_tcp_connect(const char *hostname, const char *port);
  * @return A file descriptor on success, -1 on failure (with appropriate errno set).
  */
 int socket_tcp_listen(const char *hostname, const char *port);
+
+/**
+ * Get a socket bound to a remote UDP IPv4/IPv6 host.
+ * NB: UDP is not connection oriented, but POSIX binding refers to local endpoint...
+ * @param hostname Remote host name to bind to.
+ * @param port Remote port or service name to bind to.
+ * @return A file descriptor on success, -1 on failure (with appropriate errno set).
+ */
+int socket_udp_connect(const char *hostname, const char *port);
 
 /**
  * Write to a socket, retrying on EINTR. See man 2 write.

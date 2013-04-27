@@ -5,7 +5,7 @@ TARGETS = httpdnsd
 
 all: $(TARGETS)
 
-httpdnsd: http.o httpdnsd.o httpserver.o socket.o string.o thread.o url.o
+httpdnsd: http.o httpdnsd.o httpserver.o socket.o string.o thread.o url.o dns.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 clean:

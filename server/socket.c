@@ -34,7 +34,8 @@ int socket_close(int *fd_ptr) {
 	return r;
 }
 
-int socket_tcp_connect(const char *hostname, const char *port) {
+// Common functionality to all protocols
+static int socket_connect(const char *hostname, const char *port, int socktype) {
 	if (!hostname || !port) {
 		return -1;
 	}
@@ -43,7 +44,7 @@ int socket_tcp_connect(const char *hostname, const char *port) {
 	struct addrinfo *address, hints;
 	memset(&hints, 0, sizeof hints);
 	hints.ai_family = AF_INET6;
-	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_socktype = socktype;
 	hints.ai_flags = AI_PASSIVE | AI_ALL | AI_V4MAPPED;
 
 	// Get a list of addresses to try
@@ -70,6 +71,14 @@ int socket_tcp_connect(const char *hostname, const char *port) {
 	freeaddrinfo(address);
 
 	return fd;
+}
+
+int socket_udp_connect(const char *hostname, const char *port) {
+	return socket_connect(hostname, port, SOCK_DGRAM);
+}
+
+int socket_tcp_connect(const char *hostname, const char *port) {
+	return socket_connect(hostname, port, SOCK_STREAM);
 }
 
 int socket_tcp_listen(const char *hostname, const char *port) {

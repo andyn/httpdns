@@ -161,8 +161,44 @@ int http_copy(string const &action,
                 }
             }                  
         }
-        
-        // Only GET and PUT are supported
+        //POST
+        else if (action == "POST") {
+            Url::Parse post_url(source);
+            Addrinfo post_addrs(post_url.host(),
+                                  post_url.port(),
+                                  SOCK_STREAM);
+            TcpClientSocket post_socket(post_addrs);
+
+            std::stringstream content_length;
+            content_length << target.size();
+            string header_out = "POST " + post_url.path() + " HTTP/1.1\r\n" +
+                                "Connection: close\r\n" +
+                                "Content-Type: text/plain\r\n" +
+                                "Content-Length: " + content_length.str() + "\r\n" +
+                                "Iam: anilakar\r\n\r\n";
+            post_socket.write(header_out);
+            post_socket.write(target);
+            
+            vector<char> buffer(512);
+            // Alternate reading and writing until no more content is expected
+            while (true) {
+                size_t read_from_file = post_socket.read(buffer);
+                if (read_from_file > 0) {
+                    for (size_t i = 0; i < read_from_file; ++i) {
+                        std::cout << buffer[i];
+                    }
+                }
+                else if (read_from_file == 0) {
+                    std::cout << std::endl;
+                    break;
+                }
+                else { // -1
+                    throw std::runtime_error("Error reading back data");
+                }
+            }                  
+
+        }
+        // Only GET and PUT and POST are supported
         else {
             std::cerr << "Unknown action " << action << std::endl;
             return EXIT_FAILURE;

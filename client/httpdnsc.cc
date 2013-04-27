@@ -37,8 +37,9 @@ int main(int argc, char * argv[]) {
     // Check for right number of params
     if (params.size() != 4) {
         std::cout << "Usage: " << params.at(0) << " ACTION SOURCE TARGET\n"
-                  << "  ACTION              GET or PUT\n"
+                  << "  ACTION              GET or PUT or POST\n"
                   << "  SOURCE, TARGET      file name or a URL\n"
+                  << "                      when POSTing, SOURCE is URL and TARGET is data"
                   << std::endl;
         return EXIT_SUCCESS;
     }

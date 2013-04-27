@@ -1,10 +1,6 @@
-HttpDns
-=======
+Contents
+========
 
-A minimal HTTP client, server and DNS requester. Home assignment for course S-38.3610 Network Programming.
-
-Repository contents
--------------------
-
-doc/        Documentation -- usage instructions and assignment final report
-src/        Source code for the assignment
+client/     Source code for the HttpDns client
+doc/        Client contents, and learning diary
+server/     Source code for the HttpDns server
